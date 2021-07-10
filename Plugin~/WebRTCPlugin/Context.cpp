@@ -33,14 +33,14 @@ namespace webrtc
         return nullptr;
     }
 
-    Context* ContextManager::CreateContext(int uid, UnityEncoderType encoderType)
+    Context* ContextManager::CreateContext(int uid, UnityEncoderType encoderType, bool forTest)
     {
         auto it = s_instance.m_contexts.find(uid);
         if (it != s_instance.m_contexts.end()) {
             DebugLog("Using already created context with ID %d", uid);
             return nullptr;
         }
-        auto ctx = new Context(uid, encoderType);
+        auto ctx = new Context(uid, encoderType, forTest);
         s_instance.m_contexts[uid].reset(ctx);
         return ctx;
     }
@@ -177,7 +177,7 @@ namespace webrtc
     }
 #pragma warning(pop)
 
-    Context::Context(int uid, UnityEncoderType encoderType)
+    Context::Context(int uid, UnityEncoderType encoderType, bool forTest)
         : m_uid(uid)
         , m_encoderType(encoderType)
     {
@@ -197,7 +197,7 @@ namespace webrtc
 
         std::unique_ptr<webrtc::VideoDecoderFactory> videoDecoderFactory =
             m_encoderType == UnityEncoderType::UnityEncoderHardware ?
-            std::make_unique<UnityVideoDecoderFactory>() :
+            std::make_unique<UnityVideoDecoderFactory>(forTest) :
             webrtc::CreateBuiltinVideoDecoderFactory();
 
         m_peerConnectionFactory = CreatePeerConnectionFactory(
@@ -504,14 +504,14 @@ namespace webrtc
     UnityVideoRenderer* Context::CreateVideoRenderer()
     {
         auto rendererId = GenerateRendererId();
-        auto renderer = std::make_unique<UnityVideoRenderer>(rendererId);
-        m_mapVideoRenderer[rendererId] = std::move(renderer);
+        auto renderer = std::make_shared<UnityVideoRenderer>(rendererId);
+        m_mapVideoRenderer[rendererId] = renderer;
         return m_mapVideoRenderer[rendererId].get();
     }
 
-    UnityVideoRenderer* Context::GetVideoRenderer(uint32_t id)
+    std::shared_ptr<UnityVideoRenderer> Context::GetVideoRenderer(uint32_t id)
     {
-        return m_mapVideoRenderer[id].get();
+        return m_mapVideoRenderer[id];
     }
 
     void Context::DeleteVideoRenderer(UnityVideoRenderer* renderer)

@@ -349,6 +349,12 @@ namespace Unity.WebRTC
         /// <param name="limitTextureSize"></param>
         public static void Initialize(EncoderType type = EncoderType.Hardware, bool limitTextureSize = true)
         {
+            Initialize(type, limitTextureSize, false);
+        }
+
+
+        internal static void Initialize(EncoderType type, bool limitTextureSize, bool forTest)
+        {
             // todo(kazuki): Add this event to avoid crash caused by hot-reload.
             // Dispose of all before reloading assembly.
 #if UNITY_EDITOR
@@ -378,7 +384,7 @@ namespace Unity.WebRTC
 #if UNITY_IOS && !UNITY_EDITOR
             NativeMethods.RegisterRenderingWebRTCPlugin();
 #endif
-            s_context = Context.Create(encoderType:type);
+            s_context = Context.Create(encoderType:type, forTest:forTest);
             NativeMethods.SetCurrentContext(s_context.self);
             s_syncContext = SynchronizationContext.Current;
             var flipShader = Resources.Load<Shader>("Flip");
@@ -401,15 +407,20 @@ namespace Unity.WebRTC
                 // Wait until all frame rendering is done
                 yield return new WaitForEndOfFrame();
                 {
-                    foreach(var track in VideoStreamTrack.tracks)
+                    lock (VideoStreamTrack.s_lockTracks)
                     {
-                        if (track.IsEncoderInitialized)
+                        foreach (var reference in VideoStreamTrack.s_tracks.Values)
                         {
-                            track.Update();
-                        }
-                        else if (track.IsDecoderInitialized)
-                        {
-                            track.UpdateReceiveTexture();
+                            if (!reference.TryGetTarget(out var track))
+                                continue;
+                            if (track.IsEncoderInitialized)
+                            {
+                                track.Update();
+                            }
+                            else if (track.IsDecoderInitialized)
+                            {
+                                track.UpdateReceiveTexture();
+                            }
                         }
                     }
                 }
@@ -733,6 +744,8 @@ namespace Unity.WebRTC
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     internal delegate void DelegateNativeOnTrack(IntPtr ptr, IntPtr transceiver);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    internal delegate void DelegateNativeOnRemoveTrack(IntPtr ptr, IntPtr receiver);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     internal delegate void DelegateNativeOnDataChannel(IntPtr ptr, IntPtr ptrChannel);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     internal delegate void DelegateNativeOnMessage(IntPtr ptr, [MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 2)] byte[] bytes, int size);
@@ -761,7 +774,7 @@ namespace Unity.WebRTC
         [DllImport(WebRTC.Lib)]
         public static extern void RegisterDebugLog(DelegateDebugLog func);
         [DllImport(WebRTC.Lib)]
-        public static extern IntPtr ContextCreate(int uid, EncoderType encoderType);
+        public static extern IntPtr ContextCreate(int uid, EncoderType encoderType, [MarshalAs(UnmanagedType.U1)] bool forTest);
         [DllImport(WebRTC.Lib)]
         public static extern void ContextDestroy(int uid);
         [DllImport(WebRTC.Lib)]
@@ -895,6 +908,8 @@ namespace Unity.WebRTC
         public static extern void PeerConnectionRegisterOnRenegotiationNeeded(IntPtr ptr, DelegateNativeOnNegotiationNeeded callback);
         [DllImport(WebRTC.Lib)]
         public static extern void PeerConnectionRegisterOnTrack(IntPtr ptr, DelegateNativeOnTrack callback);
+        [DllImport(WebRTC.Lib)]
+        public static extern void PeerConnectionRegisterOnRemoveTrack(IntPtr ptr, DelegateNativeOnRemoveTrack callback);
         [DllImport(WebRTC.Lib)]
         [return: MarshalAs(UnmanagedType.U1)]
         public static extern bool TransceiverGetCurrentDirection(IntPtr transceiver, ref RTCRtpTransceiverDirection direction);
